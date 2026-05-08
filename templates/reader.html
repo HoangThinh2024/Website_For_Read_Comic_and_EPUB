@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="vi" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ book.title }} – KomicLib</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  {% if book.file_type == 'epub' %}
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+  {% endif %}
+</head>
+<body class="reader-body">
+
+  <!-- ── Reader Navbar ── -->
+  <div class="reader-navbar">
+    <a href="{{ url_for('library.index') }}" class="btn-ghost btn-sm">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <span class="reader-title">{{ book.title }}</span>
+
+    {% if book.file_type == 'cbz' %}
+    <div class="reader-controls">
+      <button class="btn-ghost btn-sm" id="prevBtn"><i class="bi bi-chevron-left"></i></button>
+      <span class="page-indicator" id="pageIndicator">1 / {{ book.page_count }}</span>
+      <button class="btn-ghost btn-sm" id="nextBtn"><i class="bi bi-chevron-right"></i></button>
+    </div>
+    {% elif book.file_type == 'pdf' %}
+    <div class="reader-controls">
+      <button class="btn-ghost btn-sm" id="prevBtn"><i class="bi bi-chevron-left"></i></button>
+      <span class="page-indicator" id="pageIndicator">– / –</span>
+      <button class="btn-ghost btn-sm" id="nextBtn"><i class="bi bi-chevron-right"></i></button>
+      <select id="zoomSelect" class="filter-select ms-2" style="width:90px;padding:0.3rem 0.5rem">
+        <option value="0.8">80%</option>
+        <option value="1.0" selected>100%</option>
+        <option value="1.25">125%</option>
+        <option value="1.5">150%</option>
+        <option value="2.0">200%</option>
+      </select>
+    </div>
+    {% elif book.file_type == 'epub' %}
+    <div class="reader-controls">
+      <button class="btn-ghost btn-sm" id="prevBtn"><i class="bi bi-chevron-left"></i></button>
+      <span class="page-indicator" id="pageIndicator"></span>
+      <button class="btn-ghost btn-sm" id="nextBtn"><i class="bi bi-chevron-right"></i></button>
+    </div>
+    {% endif %}
+
+    <div class="ms-auto d-flex gap-2 align-items-center">
+      {% if book.file_type in ['pdf','epub'] %}
+      <a href="{{ url_for('library.serve_file', book_id=book.id) }}" class="btn-ghost btn-sm" title="Tải xuống" download>
+        <i class="bi bi-download"></i>
+      </a>
+      {% endif %}
+      <span class="badge"
+        style="background:{% if book.file_type=='cbz' %}#9b59b6{% elif book.file_type=='pdf' %}#e74c3c{% elif book.file_type=='epub' %}#2ecc71{% else %}#3498db{% endif %}">
+        {{ book.file_type.upper() }}
+      </span>
+    </div>
+  </div>
+
+  <!-- ── Reader Body ── -->
+
+  {% if book.file_type == 'pdf' %}
+  <!-- PDF Reader -->
+  <div id="pdf-container" style="padding-top:1rem">
+    <div id="loadingMsg" style="text-align:center;padding:4rem;color:var(--text-muted)">
+      <div class="spinner-border text-primary mb-3"></div><br>Đang tải PDF…
+    </div>
+  </div>
+
+  {% elif book.file_type == 'epub' %}
+  <!-- EPUB Reader -->
+  <div id="epub-container" style="margin-top:1rem;min-height:calc(100vh - 70px)">
+    <div id="viewer" style="min-height:calc(100vh - 70px)"></div>
+  </div>
+
+  {% elif book.file_type == 'cbz' %}
+  <!-- CBZ Reader -->
+  <div id="cbz-container">
+    <div class="cbz-nav prev"><button class="cbz-nav-btn" id="prevBtn2">‹</button></div>
+    <img id="cbz-page-img" src="/cbz/{{ book.id }}/page/0" alt="Page 1"
+         onerror="this.alt='Lỗi tải trang'">
+    <div class="cbz-nav next"><button class="cbz-nav-btn" id="nextBtn2">›</button></div>
+    <div class="mt-3" style="color:var(--text-muted);font-size:0.85rem">
+      Nhấp vào ảnh hoặc dùng phím ← → để chuyển trang
+    </div>
+  </div>
+
+  {% elif book.file_type == 'docx' %}
+  <!-- DOCX Reader -->
+  <div style="padding:1rem 1rem 4rem">
+    {{ html_content | safe }}
+  </div>
+  {% endif %}
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  {% if book.file_type == 'pdf' %}
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs" type="module"></script>
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+
+    const BOOK_ID = {{ book.id }};
+    const SAVED_PAGE = {{ book.read_progress or 1 }};
+    let pdfDoc = null, currentPage = SAVED_PAGE || 1, scale = 1.0;
+
+    const container = document.getElementById('pdf-container');
+    const indicator = document.getElementById('pageIndicator');
+    const prevBtn   = document.getElementById('prevBtn');
+    const nextBtn   = document.getElementById('nextBtn');
+    const zoomSel   = document.getElementById('zoomSelect');
+
+    async function renderPage(num) {
+      const page = await pdfDoc.getPage(num);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width  = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.maxWidth = '100%';
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      return canvas;
+    }
+
+    async function showPage(num) {
+      num = Math.max(1, Math.min(num, pdfDoc.numPages));
+      currentPage = num;
+      const canvas = await renderPage(num);
+      container.innerHTML = '';
+      container.appendChild(canvas);
+      indicator.textContent = `${num} / ${pdfDoc.numPages}`;
+      prevBtn.disabled = num <= 1;
+      nextBtn.disabled = num >= pdfDoc.numPages;
+      saveProgress(num);
+    }
+
+    function saveProgress(p) {
+      fetch(`/api/books/${BOOK_ID}/progress`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({progress: p})
+      });
+    }
+
+    pdfjsLib.getDocument('/files/{{ book.id }}').promise.then(doc => {
+      pdfDoc = doc;
+      showPage(currentPage);
+    });
+
+    prevBtn.addEventListener('click', () => showPage(currentPage - 1));
+    nextBtn.addEventListener('click', () => showPage(currentPage + 1));
+    zoomSel.addEventListener('change', () => { scale = parseFloat(zoomSel.value); showPage(currentPage); });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft')  showPage(currentPage - 1);
+      if (e.key === 'ArrowRight') showPage(currentPage + 1);
+    });
+  </script>
+
+  {% elif book.file_type == 'epub' %}
+  <script>
+    const BOOK_ID  = {{ book.id }};
+    const SAVED    = {{ book.read_progress or 0 }};
+    const book = ePub('/files/{{ book.id }}');
+    const rendition = book.renderTo('viewer', {
+      width: '100%', height: window.innerHeight - 60,
+      flow: 'paginated', spread: 'none'
+    });
+
+    rendition.display(SAVED || undefined);
+
+    const prev = document.getElementById('prevBtn');
+    const next = document.getElementById('nextBtn');
+    const ind  = document.getElementById('pageIndicator');
+
+    prev.addEventListener('click', () => rendition.prev());
+    next.addEventListener('click', () => rendition.next());
+
+    rendition.on('relocated', loc => {
+      const p = loc.start.displayed;
+      ind.textContent = `${p.page} / ${p.total}`;
+      fetch(`/api/books/${BOOK_ID}/progress`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({progress: loc.start.cfi || p.page})
+      });
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft')  rendition.prev();
+      if (e.key === 'ArrowRight') rendition.next();
+    });
+  </script>
+
+  {% elif book.file_type == 'cbz' %}
+  <script>
+    const BOOK_ID    = {{ book.id }};
+    const PAGE_COUNT = {{ book.page_count }};
+    let currentPage  = {{ book.read_progress or 0 }};
+
+    const img    = document.getElementById('cbz-page-img');
+    const indic  = document.getElementById('pageIndicator');
+    const prev1  = document.getElementById('prevBtn');
+    const next1  = document.getElementById('nextBtn');
+    const prev2  = document.getElementById('prevBtn2');
+    const next2  = document.getElementById('nextBtn2');
+
+    function goTo(p) {
+      p = Math.max(0, Math.min(p, PAGE_COUNT - 1));
+      currentPage = p;
+      img.src = `/cbz/${BOOK_ID}/page/${p}`;
+      indic.textContent = `${p + 1} / ${PAGE_COUNT}`;
+      prev1.disabled = prev2.disabled = p <= 0;
+      next1.disabled = next2.disabled = p >= PAGE_COUNT - 1;
+      fetch(`/api/books/${BOOK_ID}/progress`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({progress: p})
+      });
+    }
+
+    [prev1, prev2].forEach(b => b && b.addEventListener('click', () => goTo(currentPage - 1)));
+    [next1, next2].forEach(b => b && b.addEventListener('click', () => goTo(currentPage + 1)));
+    img.addEventListener('click', e => {
+      const half = img.getBoundingClientRect().width / 2;
+      goTo(e.offsetX > half ? currentPage + 1 : currentPage - 1);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft')  goTo(currentPage - 1);
+      if (e.key === 'ArrowRight') goTo(currentPage + 1);
+    });
+
+    goTo(currentPage);
+  </script>
+  {% endif %}
+
+</body>
+</html>

@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# App files – user data
+library.db
+uploads/*.cbz
+uploads/*.pdf
+uploads/*.epub
+uploads/*.docx
+uploads/covers/*.jpg
+
+# node modules (if any)
+node_modules/
