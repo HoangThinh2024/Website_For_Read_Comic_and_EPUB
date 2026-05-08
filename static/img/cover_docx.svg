@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="420" viewBox="0 0 300 420">
+  <rect width="300" height="420" fill="#3498db" rx="8"/>
+  <text x="150" y="180" fill="white" font-size="72" text-anchor="middle" font-family="Arial">📝</text>
+  <text x="150" y="260" fill="white" font-size="36" text-anchor="middle" font-family="Arial" font-weight="bold">DOCX</text>
+</svg>

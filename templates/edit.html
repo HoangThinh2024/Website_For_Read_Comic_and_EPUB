@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Chỉnh sửa – {{ book.title }}{% endblock %}
+
+{% block body %}
+<div class="container" style="max-width:600px;padding:2rem 1rem">
+  <h2 class="mb-4" style="font-weight:700">
+    <i class="bi bi-pencil-square me-2" style="color:var(--primary)"></i>Chỉnh sửa thông tin
+  </h2>
+
+  <form method="POST" action="{{ url_for('upload.do_edit', book_id=book.id) }}">
+    <div class="mb-3">
+      <label class="form-label" style="font-size:0.85rem;color:var(--text-muted)">Tiêu đề</label>
+      <input type="text" name="title" value="{{ book.title }}" class="filter-input" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" style="font-size:0.85rem;color:var(--text-muted)">Tác giả</label>
+      <input type="text" name="author" value="{{ book.author or '' }}" class="filter-input">
+    </div>
+    <div class="mb-3">
+      <label class="form-label" style="font-size:0.85rem;color:var(--text-muted)">Mô tả</label>
+      <textarea name="description" rows="4" class="filter-input" style="resize:vertical">{{ book.description or '' }}</textarea>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" style="font-size:0.85rem;color:var(--text-muted)">Thể loại</label>
+      <select name="genre_id" class="filter-select">
+        <option value="">-- Không có --</option>
+        {% for g in genres %}
+        <option value="{{ g.id }}" {{ 'selected' if book.genre_id == g.id else '' }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" style="font-size:0.85rem;color:var(--text-muted)">Hoặc tạo thể loại mới</label>
+      <input type="text" name="custom_genre" class="filter-input" placeholder="Nhập tên thể loại…">
+    </div>
+
+    <div class="d-flex gap-3 mt-4">
+      <button type="submit" class="btn-primary-custom">
+        <i class="bi bi-save me-1"></i>Lưu
+      </button>
+      <a href="{{ url_for('library.index') }}" class="btn-ghost">Huỷ</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

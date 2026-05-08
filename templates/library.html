@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Thư viện – KomicLib{% endblock %}
+
+{% block body %}
+<div class="page-wrapper">
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <h6>Tìm kiếm</h6>
+    <input id="searchInput" type="search" class="filter-input mb-3" placeholder="Tìm tiêu đề, tác giả…">
+
+    <h6>Định dạng</h6>
+    <button class="btn-filter-tag active" data-type="all">
+      <i class="bi bi-collection me-1"></i> Tất cả
+    </button>
+    {% for ft in file_types %}
+    <button class="btn-filter-tag" data-type="{{ ft }}">
+      {% if ft == 'cbz' %}<i class="bi bi-image me-1"></i>
+      {% elif ft == 'pdf' %}<i class="bi bi-file-earmark-pdf me-1"></i>
+      {% elif ft == 'epub' %}<i class="bi bi-journal-text me-1"></i>
+      {% elif ft == 'docx' %}<i class="bi bi-file-earmark-word me-1"></i>{% endif %}
+      {{ ft.upper() }}
+    </button>
+    {% endfor %}
+
+    <h6 class="mt-3">Thể loại</h6>
+    <button class="btn-filter-tag genre-btn active" data-genre="0">
+      <i class="bi bi-grid me-1"></i> Tất cả
+    </button>
+    {% for g in genres %}
+    <button class="btn-filter-tag genre-btn" data-genre="{{ g.id }}">
+      <i class="bi bi-tag me-1"></i> {{ g.name }}
+    </button>
+    {% endfor %}
+
+    <h6 class="mt-3">Sắp xếp</h6>
+    <select id="sortSelect" class="filter-select">
+      <option value="date_desc">Mới thêm trước</option>
+      <option value="date_asc">Cũ thêm trước</option>
+      <option value="title_asc">Tiêu đề A→Z</option>
+      <option value="title_desc">Tiêu đề Z→A</option>
+      <option value="author_asc">Tác giả A→Z</option>
+    </select>
+  </aside>
+
+  <!-- ── Main content ── -->
+  <main class="content-area">
+    <!-- Stats + View toggle -->
+    <div class="stats-bar">
+      <span class="count" id="countLabel">Đang tải…</span>
+      <div class="d-flex align-items-center gap-2">
+        <div class="view-toggle btn-group">
+          <button class="btn btn-sm active" id="gridViewBtn" title="Dạng lưới">
+            <i class="bi bi-grid-3x3-gap-fill"></i>
+          </button>
+          <button class="btn btn-sm" id="listViewBtn" title="Dạng danh sách">
+            <i class="bi bi-list-ul"></i>
+          </button>
+        </div>
+        <a href="{{ url_for('upload.upload_page') }}" class="btn-primary-custom btn-sm">
+          <i class="bi bi-plus-lg me-1"></i> Thêm
+        </a>
+      </div>
+    </div>
+
+    <!-- Book container -->
+    <div id="booksContainer" class="books-grid"></div>
+
+    <!-- Pagination -->
+    <div id="paginationWrap" class="pagination-wrap"></div>
+  </main>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content" style="background:var(--bg-card);border:1px solid var(--border)">
+      <div class="modal-body text-center py-4">
+        <p class="mb-3">Xoá sách này khỏi thư viện?</p>
+        <div class="d-flex gap-2 justify-content-center">
+          <button class="btn-ghost" data-bs-dismiss="modal">Huỷ</button>
+          <button class="btn-primary-custom" id="confirmDelete" style="background:var(--danger)">Xoá</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  search: '', fileType: 'all', genreId: '0',
+  sort: 'date_desc', page: 1, perPage: 24,
+  viewMode: 'grid'
+};
+let deleteTarget = null;
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const container = document.getElementById('booksContainer');
+const countLabel = document.getElementById('countLabel');
+const paginationWrap = document.getElementById('paginationWrap');
+
+// ── Fetch books ────────────────────────────────────────────────────────────
+async function loadBooks() {
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner-border text-primary"></div></div>';
+  const params = new URLSearchParams({
+    search: state.search,
+    file_type: state.fileType,
+    genre_id: state.genreId,
+    sort: state.sort,
+    page: state.page,
+    per_page: state.perPage
+  });
+  const res = await fetch('/api/books?' + params);
+  const data = await res.json();
+  renderBooks(data.books);
+  renderPagination(data.pages, data.current_page);
+  countLabel.textContent = `${data.total} cuốn sách`;
+}
+
+// ── Render books ──────────────────────────────────────────────────────────
+function renderBooks(books) {
+  if (!books.length) {
+    container.className = '';
+    container.innerHTML = `<div class="empty-state"><div class="icon">📚</div>
+      <p>Không có sách nào phù hợp.</p>
+      <a href="/upload" class="btn-primary-custom mt-2 d-inline-block">Tải lên ngay</a></div>`;
+    return;
+  }
+  if (state.viewMode === 'grid') {
+    container.className = 'books-grid';
+    container.innerHTML = books.map(bookCardHTML).join('');
+  } else {
+    container.className = 'books-list';
+    container.innerHTML = books.map(bookListHTML).join('');
+  }
+}
+
+function bookCardHTML(b) {
+  const progress = b.page_count > 0 ? Math.round((b.read_progress / b.page_count) * 100) : 0;
+  return `
+    <div class="book-card" onclick="openReader(${b.id})">
+      <div class="book-cover-wrap">
+        <img src="${b.cover_url}" alt="${esc(b.title)}" loading="lazy"
+             onerror="this.src='/static/img/cover_${b.file_type}.svg'">
+        <span class="book-format-badge badge-${b.file_type}">${b.file_type.toUpperCase()}</span>
+        ${progress > 0 ? `<div class="book-progress-bar" style="width:${progress}%"></div>` : ''}
+      </div>
+      <div class="book-info">
+        <div class="book-title">${esc(b.title)}</div>
+        <div class="book-author">${esc(b.author || 'Chưa có tác giả')}</div>
+      </div>
+      <div class="book-actions" onclick="event.stopPropagation()">
+        <button class="btn-icon" title="Đọc" onclick="openReader(${b.id})">
+          <i class="bi bi-play-fill"></i>
+        </button>
+        <button class="btn-icon" title="Chỉnh sửa" onclick="editBook(${b.id})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn-icon danger" title="Xoá" onclick="deleteBook(${b.id})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+function bookListHTML(b) {
+  const progress = b.page_count > 0 ? Math.round((b.read_progress / b.page_count) * 100) : 0;
+  return `
+    <div class="book-list-item" onclick="openReader(${b.id})">
+      <img class="book-list-cover" src="${b.cover_url}" alt="${esc(b.title)}" loading="lazy"
+           onerror="this.src='/static/img/cover_${b.file_type}.svg'">
+      <div class="book-list-info">
+        <div class="book-list-title">${esc(b.title)}</div>
+        <div class="book-list-meta">
+          ${b.author ? `<span>${esc(b.author)}</span> · ` : ''}
+          <span class="book-format-badge badge-${b.file_type} ms-1">${b.file_type.toUpperCase()}</span>
+          ${b.genre ? ` · <span>${esc(b.genre)}</span>` : ''}
+          ${b.page_count > 0 ? ` · ${b.page_count} trang` : ''}
+          ${progress > 0 ? ` · <span style="color:var(--primary)">${progress}% đã đọc</span>` : ''}
+        </div>
+      </div>
+      <div class="book-list-actions" onclick="event.stopPropagation()">
+        <button class="btn-ghost btn-sm" onclick="openReader(${b.id})" title="Đọc">
+          <i class="bi bi-play-fill"></i>
+        </button>
+        <button class="btn-ghost btn-sm" onclick="editBook(${b.id})" title="Sửa">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteBook(${b.id})" title="Xoá">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────────
+function renderPagination(pages, current) {
+  if (pages <= 1) { paginationWrap.innerHTML = ''; return; }
+  let html = '';
+  html += `<button class="btn-page" ${current===1?'disabled':''} onclick="goPage(${current-1})">‹</button>`;
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - current) <= 2) {
+      html += `<button class="btn-page ${i===current?'active':''}" onclick="goPage(${i})">${i}</button>`;
+    } else if (Math.abs(i - current) === 3) {
+      html += `<span class="btn-page" style="pointer-events:none">…</span>`;
+    }
+  }
+  html += `<button class="btn-page" ${current===pages?'disabled':''} onclick="goPage(${current+1})">›</button>`;
+  paginationWrap.innerHTML = html;
+}
+
+function goPage(p) { state.page = p; loadBooks(); }
+
+// ── Actions ───────────────────────────────────────────────────────────────
+function openReader(id) { window.location.href = `/read/${id}`; }
+function editBook(id)   { window.location.href = `/books/${id}/edit`; }
+function deleteBook(id) {
+  deleteTarget = id;
+  new bootstrap.Modal(document.getElementById('deleteModal')).show();
+}
+
+document.getElementById('confirmDelete').addEventListener('click', async () => {
+  if (!deleteTarget) return;
+  await fetch(`/api/books/${deleteTarget}`, { method: 'DELETE' });
+  deleteTarget = null;
+  bootstrap.Modal.getInstance(document.getElementById('deleteModal')).hide();
+  loadBooks();
+});
+
+// ── View toggle ──────────────────────────────────────────────────────────
+document.getElementById('gridViewBtn').addEventListener('click', () => {
+  state.viewMode = 'grid';
+  document.getElementById('gridViewBtn').classList.add('active');
+  document.getElementById('listViewBtn').classList.remove('active');
+  renderBooks(window._lastBooks || []);
+});
+document.getElementById('listViewBtn').addEventListener('click', () => {
+  state.viewMode = 'list';
+  document.getElementById('listViewBtn').classList.add('active');
+  document.getElementById('gridViewBtn').classList.remove('active');
+  renderBooks(window._lastBooks || []);
+});
+
+// Patch loadBooks to cache books
+const _origLoad = loadBooks;
+window._loadBooks = async function() {
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner-border text-primary"></div></div>';
+  const params = new URLSearchParams({
+    search: state.search, file_type: state.fileType, genre_id: state.genreId,
+    sort: state.sort, page: state.page, per_page: state.perPage
+  });
+  const res = await fetch('/api/books?' + params);
+  const data = await res.json();
+  window._lastBooks = data.books;
+  renderBooks(data.books);
+  renderPagination(data.pages, data.current_page);
+  countLabel.textContent = `${data.total} cuốn sách`;
+};
+
+// ── Filters ──────────────────────────────────────────────────────────────
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    state.search = e.target.value; state.page = 1; window._loadBooks();
+  }, 350);
+});
+
+document.getElementById('sortSelect').addEventListener('change', e => {
+  state.sort = e.target.value; state.page = 1; window._loadBooks();
+});
+
+document.querySelectorAll('.btn-filter-tag[data-type]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.btn-filter-tag[data-type]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.fileType = btn.dataset.type; state.page = 1; window._loadBooks();
+  });
+});
+
+document.querySelectorAll('.genre-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.genreId = btn.dataset.genre; state.page = 1; window._loadBooks();
+  });
+});
+
+// ── Helper ───────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────
+window._loadBooks();
+</script>
+{% endblock %}
